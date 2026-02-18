@@ -1,0 +1,41 @@
+name: CA350 MQTT Bridge
+slug: ca350_mqtt_bridge
+version: "1.0"
+description: Zehnder ComfoAir 350 -> MQTT -> Home Assistant (Climate + Sensors)
+
+startup: services
+boot: auto
+init: false
+host_network: true
+
+arch:
+  - amd64
+  - aarch64
+  - armv7
+  - armhf
+  - i386
+
+options:
+  debug: false
+  comfoair_host: "192.168.40.130"
+  comfoair_port: 8899
+  pc_mode: 0
+
+  mqtt_base_topic: "comfoair"
+  ha_prefix: "homeassistant"
+
+
+schema:
+  debug: bool
+  comfoair_host: str
+  comfoair_port: int
+  pc_mode: list(0|1|4)
+
+  mqtt_base_topic: str
+  ha_prefix: str
+
+  
+services:
+  - mqtt:need
+
+url: "https://github.com/pepo83/ha-app-ca350-mqtt-bridge"
