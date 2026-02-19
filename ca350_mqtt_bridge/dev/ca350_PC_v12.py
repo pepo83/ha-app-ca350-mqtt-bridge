@@ -229,6 +229,8 @@ class MqttManager:
             ("intake_fan", "Intake fan %", "%"),
             ("exhaust_fan", "Exhaust fan %", "%"),
             ("bypass", "Bypass", None),
+            ("filter", "Filter", None),
+            ("summer_mode", "Summer Mode", None),
             ("rs232_mode", "RS232 Mode", None),
             ("preheater_flap", "Preheater flap", None),
             ("frost_protection", "Frost protection", None),
@@ -487,9 +489,12 @@ class CA350Client:
 
         # Bypass
         elif cmd == b"\x00\xE0" and len(data) >= 7:
-            bypass = data[6]
-            self.publish("bypass", "ON" if bypass == 1 else "OFF")
+            bypass = data[3]
+            self.publish("bypass", str(bypass))
             log.info(f"Bypass = {bypass}")
+            summer_mode= data[6]
+            self.publish("summer_mode", "ON" if summer_mode== 1 else "OFF")
+            log.info(f"summer_mode= {bypass}")
 
         # RS232 mode
         elif cmd == b"\x00\x9C" and len(data) >= 1:
@@ -498,7 +503,7 @@ class CA350Client:
             self.publish("rs232_mode", str(RS232_mode))
             log.info(f"RS232 mode = {RS232_mode}")
           
-        # Airflow mode from Display commands
+        # Airflow mode and Filter status from Display commands
         elif cmd == b"\x00\x3C" and len(data) >= 10:
         
             flags = data[9]
@@ -518,6 +523,18 @@ class CA350Client:
         
             log.info(f"Airflow mode = {mode}")
             self.publish("airflow_mode", mode)
+            
+            flags = data[1]
+            filter_flag = bool(flags & 0x20)
+            
+            if filter_flag:
+                filter_state = "Full"
+            else:
+                filter_state = "OK"
+                
+            log.info(f"Filter = {filter_state}")
+            self.publish("filter", filter_state)
+            
         
         # Preheater / Frost protection status
         elif cmd == b"\x00\xE2" and len(data) >= 6:
