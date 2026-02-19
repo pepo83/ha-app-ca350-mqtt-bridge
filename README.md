@@ -13,5 +13,10 @@ to MQTT and provides Home Assistant MQTT Auto-Discovery (Climate + Sensors).
 
 Then install **CA350 MQTT Bridge**.
 
+Based on:
+https://github.com/adorobis/hacomfoairmqtt
+
 ## Development
 - App folder: `ca350_mqtt_bridge/`
+
+<img width="294" height="892" alt="grafik" src="https://github.com/user-attachments/assets/e8b2dfad-8283-457d-8547-3e51b14b907f" />
