@@ -17,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -83,7 +84,7 @@ jobs:
           git config user.email "github-actions@github.com"
           git add CHANGELOG.md
           git commit -m "chore: update CHANGELOG for ${{ steps.version.outputs.version }}"
-          git push
+          git push origin HEAD:main
 
       - name: Build add-on zip
         run: |
