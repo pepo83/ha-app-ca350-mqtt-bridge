@@ -1,9 +1,9 @@
-name: Generate Changelog
+name: Update Changelog on Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -13,31 +13,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install conventional-changelog
-        run: npm install -g conventional-changelog-cli
-
-      - name: Generate CHANGELOG.md
+      - name: Extract version from tag
+        id: tag
         run: |
-          conventional-changelog -p angular -i CHANGELOG.md -s
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Commit CHANGELOG if changed
+      - name: Generate CHANGELOG entry
         run: |
-          if git diff --quiet; then
-            echo "No changes to CHANGELOG"
-          else
-            git config user.name "github-actions"
-            git config user.email "github-actions@github.com"
-            git add CHANGELOG.md
-            git commit -m "chore: update CHANGELOG"
-            git push
+          VERSION=${{ steps.tag.outputs.version }}
+          DATE=$(date +'%Y-%m-%d')
+
+          # create md
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
           fi
+
+          echo "## $VERSION - $DATE" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            git log --pretty=format:"- %s" >> CHANGELOG.md
+          else
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s" >> CHANGELOG.md
+          fi
+
+          echo "" >> CHANGELOG.md
+
+      - name: Commit updated CHANGELOG
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add CHANGELOG.md
+          git commit -m "chore: update CHANGELOG for ${{ steps.tag.outputs.version }}"
+          git push
