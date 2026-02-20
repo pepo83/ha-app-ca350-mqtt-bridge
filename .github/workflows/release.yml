@@ -1,4 +1,4 @@
-name: Auto Release
+name: Release + Changelog
 
 on:
   push:
@@ -11,9 +11,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout full history
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -23,13 +26,13 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
 
-      - name: Read add-on version
+      - name: Read version from config.yaml
         id: version
         run: |
           VERSION=$(python3 -c "import yaml;print(yaml.safe_load(open('ca350_mqtt_bridge/config.yaml'))['version'])")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Check if tag already exists
+      - name: Check if tag exists
         id: tagcheck
         run: |
           TAG="v${{ steps.version.outputs.version }}"
@@ -39,22 +42,56 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create tag
-        if: steps.tagcheck.outputs.exists == 'false'
+      - name: Stop if tag already exists
+        if: steps.tagcheck.outputs.exists == 'true'
+        run: |
+          echo "Tag already exists. No release needed."
+          exit 0
+
+      - name: Create Tag
         run: |
           TAG="v${{ steps.version.outputs.version }}"
           git tag "$TAG"
           git push origin "$TAG"
 
+      - name: Generate CHANGELOG entry
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DATE=$(date +'%Y-%m-%d')
+
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          echo "## $VERSION - $DATE" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            git log --pretty=format:"- %s" >> CHANGELOG.md
+          else
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s" >> CHANGELOG.md
+          fi
+
+          echo "" >> CHANGELOG.md
+
+      - name: Commit updated CHANGELOG
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add CHANGELOG.md
+          git commit -m "chore: update CHANGELOG for ${{ steps.version.outputs.version }}"
+          git push
+
       - name: Build add-on zip
-        if: steps.tagcheck.outputs.exists == 'false'
         run: |
           cd ca350_mqtt_bridge
           zip -r ../ca350_mqtt_bridge.zip .
           cd ..
 
       - name: Create GitHub Release
-        if: steps.tagcheck.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
