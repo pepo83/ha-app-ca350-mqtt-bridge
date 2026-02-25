@@ -19,4 +19,5 @@ https://github.com/adorobis/hacomfoairmqtt
 ## Development
 - App folder: `ca350_mqtt_bridge/`
 
-<img width="294" height="892" alt="grafik" src="https://github.com/user-attachments/assets/e8b2dfad-8283-457d-8547-3e51b14b907f" />
+<img width="257" height="871" alt="grafik" src="https://github.com/user-attachments/assets/446aafde-f32b-4a37-a486-2f42bf431b99" />
+
