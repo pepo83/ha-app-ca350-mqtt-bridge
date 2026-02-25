@@ -11,3 +11,8 @@
 - added Boost mode added Filter reset some small improvements
 - Update README.md
 - chore: update CHANGELOG for 1.2
+## 1.4 - 2026-02-25
+
+- Merge branch 'main' of https://github.com/pepo83/ha-app-ca350-mqtt-bridge
+- fixed Boost mode logging level
+- chore: update CHANGELOG for 1.3
