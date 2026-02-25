@@ -580,7 +580,7 @@ class CA350Client:
                 self.publish("preset_mode", "boost")
             else:
                 self.publish("preset_mode", "none")
-            log.info(f"Booster = {'ON' if booster_active else 'OFF'}")
+            log.debug(f"Booster = {'ON' if booster_active else 'OFF'}")
             
             #Filter status                                           
             flags = data[1]
