@@ -64,6 +64,7 @@ class MqttManager:
         self.client.on_message = self.on_message
         self.client.on_disconnect = self.on_disconnect
         self.client.reconnect_delay_set(min_delay=2, max_delay=60)
+        self.shutting_down = False                          
 
         # Last Will (shows HA if script dies)
         self.client.will_set(
@@ -81,10 +82,12 @@ class MqttManager:
     def stop(self):
         log.info("Stopping MQTT...")
         try:
+            self.shutting_down = True                         
             self.publish("status", "offline", retain=True)
             time.sleep(1)
-            self.client.loop_stop()
             self.client.disconnect()
+            self.client.loop_stop()
+            
         except Exception as e:
             log.warning(f"MQTT shutdown error: {e}")
 
@@ -112,13 +115,16 @@ class MqttManager:
 
     def on_disconnect(self, client, userdata, flags, reason_code, properties):
         log.warning(f"MQTT disconnected: {reason_code}")
-        if reason_code != 0:
-            time.sleep(5)
+        if self.shutting_down:
+            return
+
+        while not self.shutting_down:
             try:
                 log.info("Trying MQTT reconnect...")
                 client.reconnect()
-            except Exception as e:
-                log.error(f"MQTT reconnect failed: {e}")
+                break
+            except Exception:
+                time.sleep(5)
 
     def on_message(self, client, userdata, msg):
         if not self.ca:
@@ -134,11 +140,15 @@ class MqttManager:
             if topic == "climate/mode":
                 # HA sends: off / fan_only
                 if payload == "off":
+                    if  self.ca.current_booster == True:
+                        	self.ca.cancel_booster()                                                                                                       
                     self.ca.set_fan_level(1)  # off = minimal
                 else:
                     # fan_only -> keep current, but ensure at least 2 if None
                     if self.ca.current_fan_level is None:
                         self.ca.set_fan_level(2)
+                    if payload == "fan_only":
+                        self.ca.set_fan_level(2)                         
 
             elif topic == "climate/fan_mode":
                 MAP = {
@@ -149,6 +159,11 @@ class MqttManager:
                 }
                 self.ca.set_fan_level(MAP.get(payload, 2))
 
+            elif topic == "climate/preset_mode":
+                if payload == "boost":
+                    self.ca.set_booster()
+                else:
+                    self.ca.cancel_booster()                                                
             elif topic == "climate/temperature":
                 self.ca.set_temperature(float(payload))
 
@@ -158,7 +173,9 @@ class MqttManager:
             elif topic == "airflow_mode":
                 mode = payload
                 self.ca.set_airflow_mode(mode)
-
+                
+            elif topic == "filter_reset":
+                self.ca.reset_filter()           
         except Exception as e:
             log.warning(f"MQTT command error: {e}")
 
@@ -186,12 +203,17 @@ class MqttManager:
             "mode_state_topic": f"{mqtt_base_topic}/status/hvac_mode",
             "mode_command_topic": f"{mqtt_base_topic}/set/climate/mode",
             "modes": ["off", "fan_only"],
+            
+            "preset_mode_state_topic": f"{mqtt_base_topic}/status/preset_mode",
+            "preset_mode_command_topic": f"{mqtt_base_topic}/set/climate/preset_mode",
+            "preset_modes": ["boost"],                                                 
 
             "fan_mode_state_topic": f"{mqtt_base_topic}/status/fan_mode",
             "fan_mode_command_topic": f"{mqtt_base_topic}/set/climate/fan_mode",
             "fan_modes": ["away", "low", "medium", "high"],
 
             "temperature_state_topic": f"{mqtt_base_topic}/status/comfort_temp",
+            "current_temperature_topic": f"{mqtt_base_topic}/status/extract_temp",                                                                     
             "temperature_command_topic": f"{mqtt_base_topic}/set/climate/temperature",
             "min_temp": 15,
             "max_temp": 27,
@@ -210,7 +232,20 @@ class MqttManager:
             **availability,
         }
         
+        button_cfg = {
+            "name": "CA350 Filter Reset",
+            "unique_id": "ca350_filter_reset",
+            "command_topic": f"{mqtt_base_topic}/set/filter_reset",
+            "device": DEVICE_INFO,
+            **availability,
+        }
+                
         self.client.publish(
+            f"{ha_prefix}/button/ca350/filter_reset/config",
+            json.dumps(button_cfg),
+            retain=True
+        )              
+        self.client.publish(                    
             f"{ha_prefix}/select/ca350/airflow_mode/config",
             json.dumps(air_cfg),
             retain=True
@@ -315,6 +350,9 @@ class CA350Client:
         self.current_comfo_temp_raw = None
         self.current_RS232_mode = None
         self.current_airflow_mode = None
+        self.current_booster = False
+        self.filter_warn = False
+        self.shutting_down = False                                   
 
     # ---------- CONNECTION ----------
 
@@ -328,6 +366,7 @@ class CA350Client:
 
     def stop(self):
         log.info("Stopping CA350 client...")
+        self.shutting_down = True                         
         self.running = False
         try:
             if self.sock:
@@ -462,8 +501,12 @@ class CA350Client:
             self.publish("fan_mode", fan_mode)
 
             # Derive hvac_mode for HA
-            # off = fan level 1
-            self.publish("hvac_mode", "off" if fan == 1 else "fan_only")
+            # off = fan level 1 and booster off
+            if fan == 1 and not self.current_booster:
+                mode = "off"
+            else:
+                mode = "fan_only"          
+            self.publish("hvac_mode", mode)                                         
 
         # Temperature Status
         elif cmd == b"\x00\xD2" and len(data) >= 9:
@@ -499,7 +542,7 @@ class CA350Client:
             log.debug(f"Bypass = {bypass}")
             summer_mode= data[6]
             self.publish("summer_mode", "ON" if summer_mode== 1 else "OFF")
-            log.debug(f"summer_mode= {bypass}")
+            log.debug(f"summer_mode= {summer_mode}")
 
         # RS232 mode
         elif cmd == b"\x00\x9C" and len(data) >= 1:
@@ -508,9 +551,10 @@ class CA350Client:
             self.publish("rs232_mode", str(RS232_mode))
             log.debug(f"RS232 mode = {RS232_mode}")
           
-        # Airflow mode from Display commands
+        # States from Display commands
         elif cmd == b"\x00\x3C" and len(data) >= 10:
         
+            #Airflow mode                       
             flags = data[9]
             In = bool(flags & 0x40)
             Out = bool(flags & 0x80)
@@ -529,13 +573,25 @@ class CA350Client:
             log.debug(f"Airflow mode = {mode}")
             self.publish("airflow_mode", mode)
             
+            #Booster status
+            booster_active = (data[8] & 0x78) == 0x78
+            self.current_booster = booster_active
+            if booster_active:
+                self.publish("preset_mode", "boost")
+            else:
+                self.publish("preset_mode", "none")
+            log.info(f"Booster = {'ON' if booster_active else 'OFF'}")
+            
+            #Filter status                                           
             flags = data[1]
             filter_flag = bool(flags & 0x20)
             
             if filter_flag:
                 filter_state = "Full"
+                self.filter_warn = True                   
             else:
                 filter_state = "OK"
+                self.filter_warn = False                                
                 
             log.debug(f"Filter = {filter_state}")
             self.publish("filter", filter_state)
@@ -566,6 +622,8 @@ class CA350Client:
     # ---------- MQTT PUBLISH ----------
 
     def publish(self, key, value):
+        if self.shutting_down:
+            return                                         
         self.mqtt.publish(f"status/{key}", value)
 
     # ---------- VERIFIED SEND ----------
@@ -604,7 +662,7 @@ class CA350Client:
             log.warning(f"Wrong temperature provided: {temp_c}. No changes made")
             return
 
-        # Gerät erwartet raw = temp*2 + 40
+        # Device expects raw = temp*2 + 40
         val = int(round(temp_c * 2 + 40))
         data = bytes([val])
         frame = self.build_frame(b"\x00\xD3", data)
@@ -656,15 +714,76 @@ class CA350Client:
         data = bytes([0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x02])
         frame = self.build_frame(b"\x00\x37", data)
         self.sock.send(frame)
-        log.debug(f"Sent airflow_mode_button {frame.hex(' ')}")
         data = bytes([0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x03])
         frame = self.build_frame(b"\x00\x37", data)
         self.sock.send(frame)
-        log.debug(f"Sent airflow_mode_button {frame.hex(' ')}")
+        log.debug("Sent airmode press (short)")
         # data = bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02])
         # frame = self.build_frame(b"\x00\x37", data)
         # self.sock.send(frame)
         # log.info(f"Sent airflow_mode_button {frame.hex(' ')})")
+
+    def reset_filter(self):
+        log.debug("Reset Filter")
+        for _ in range(3):
+            self.press_airmode_button_long()
+            time.sleep(1)    
+            if self.filter_warn == False:
+                log.debug("Filter reset OK")
+                return True
+        log.warning("Filter reset failed")
+        return False 
+        
+    def press_airmode_button_long(self):
+        data = bytes([0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x02])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame)
+        data = bytes([0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x03])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame)
+        log.debug("Sent airmode press (long)")
+        
+    def set_booster(self):
+        log.debug("Activating Booster") 
+        for _ in range(3):
+            self.press_fan_button_long()
+            time.sleep(1)    
+            if self.current_booster:
+                log.debug("Booster activated")
+                return True
+        log.warning("Booster activation failed")
+        return False          
+            
+    def cancel_booster(self):
+        log.debug("Cancelling Booster")    
+        for _ in range(3):
+            self.press_fan_button_short()
+            time.sleep(1)
+            if not self.current_booster:
+                log.debug("Booster cancelled")
+                self.publish("preset_mode", "none")
+                self.current_booster = False
+                return True
+        log.warning("Booster cancel failed")
+        return False
+    
+    def press_fan_button_long(self):
+        data = bytes([0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame) 
+        data = bytes([0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame)  
+        log.debug("Sent fan button press (long)")
+        
+    def press_fan_button_short(self):
+        data = bytes([0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame) 
+        data = bytes([0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame)  
+        log.debug("Sent fan button press (short)")                                                       
 
     def print_seen_commands(self):
         log.debug("Seen protocol commands:")
