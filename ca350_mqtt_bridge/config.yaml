@@ -1,6 +1,6 @@
 name: CA350 MQTT Bridge
 slug: ca350_mqtt_bridge
-version: "1.5.2"
+version: "1.5.3"
 description: Zehnder ComfoAir 350 -> MQTT -> Home Assistant (Climate + Sensors)
 
 startup: services

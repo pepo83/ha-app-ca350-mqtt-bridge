@@ -1,3 +1,6 @@
+v1.5.3 - 2026-02-28
+- fix: connection issues
+
 v1.5.2 - 2026-02-28
 - fix: typo, added Comfosense connection info
 
