@@ -19,7 +19,7 @@ with open("/data/options.json") as f:
     options = json.load(f)
 
 DEBUG = options['debug'] 
-Comfosense_conected = options['comfosense_conected']                        
+Comfosense_connected = options['comfosense_connected']                        
 
 PcMode = int(options['pc_mode'])   # 0,1,4 allowed
 
@@ -523,7 +523,7 @@ class CA350Client:
         if calc != checksum:
             log.warning(f"Checksum error: {raw.hex(' ')}")
             return
-        if not Comfosense_conected: 
+        if not Comfosense_connected: 
             # ACK senden
             self.send_ack()
 
@@ -886,9 +886,10 @@ def main():
     try:
         ca.connect()
         log.info("System running (CTRL+C to exit)")
+        log.info(f"Comfosense connected: {Comfosense_connected}")
 
         # set RS232 mode      
-        if Comfosense_conected: 
+        if Comfosense_connected: 
             if PcMode in (0, 1, 4):
                 ca.set_pc_mode(PcMode)
             else:
@@ -898,7 +899,7 @@ def main():
         device_info_timer = 0                    
         while not ca.shutting_down:
         
-            if not Comfosense_conected:       
+            if not Comfosense_connected:       
                 ca.send_status_poll()
                 ca.send_button_stat()  
                 device_info_timer += 1

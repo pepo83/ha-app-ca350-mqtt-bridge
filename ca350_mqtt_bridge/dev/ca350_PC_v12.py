@@ -15,7 +15,7 @@ import paho.mqtt.client as mqtt
 # ================== CONFIG ==================
 
 DEBUG = False
-Comfosense_conected = True
+Comfosense_connected = True
 
 PcMode = 0  # 0,1,4 allowed
 
@@ -524,7 +524,7 @@ class CA350Client:
             log.warning(f"Checksum error: {raw.hex(' ')}")
             return
         
-        if not Comfosense_conected: 
+        if not Comfosense_connected: 
             # ACK senden
             self.send_ack()
 
@@ -888,9 +888,10 @@ def main():
     try:
         ca.connect()
         log.info("System running (CTRL+C to exit)")
+        log.info(f"ComfoSense connected: {Comfosense_connected}")
 
         # set RS232 mode
-        if Comfosense_conected: 
+        if Comfosense_connected: 
             if PcMode in (0, 1, 4):
                 ca.set_pc_mode(PcMode)
             else:
@@ -901,7 +902,7 @@ def main():
         
         while not ca.shutting_down:
         
-            if not Comfosense_conected:       
+            if not Comfosense_connected:       
                 ca.send_status_poll()
                 ca.send_button_stat()  
                 device_info_timer += 1
