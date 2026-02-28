@@ -388,30 +388,38 @@ class CA350Client:
 
     # ---------- CONNECTION ----------
 
+    # def connect(self):
+    #     while not self.shutting_down:
+    #         try:
+    #             log.info("Connecting to CA350...")
+    #             self.sock = socket.create_connection(
+    #                 (self.host, self.port),
+    #                 timeout=10
+    #             )
+    
+    #             self.running = True
+    
+    #             if not self.rx_thread or not self.rx_thread.is_alive():
+    #                 self.rx_thread = threading.Thread(
+    #                     target=self.rx_loop,
+    #                     daemon=True
+    #                 )
+    #                 self.rx_thread.start()
+    
+    #             log.info("Connected to CA350")
+    #             return
+    
+    #         except Exception as e:
+    #             log.warning(f"CA350 connect failed: {e}")
+    #             time.sleep(5)
     def connect(self):
-        while not self.shutting_down:
-            try:
-                log.info("Connecting to CA350...")
-                self.sock = socket.create_connection(
-                    (self.host, self.port),
-                    timeout=10
-                )
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((self.host, self.port))
+        self.running = True
+        self.rx_thread = threading.Thread(target=self.rx_loop, daemon=True)
+        self.rx_thread.start()
+        log.info("Connected to CA350")
     
-                self.running = True
-    
-                if not self.rx_thread or not self.rx_thread.is_alive():
-                    self.rx_thread = threading.Thread(
-                        target=self.rx_loop,
-                        daemon=True
-                    )
-                    self.rx_thread.start()
-    
-                log.info("Connected to CA350")
-                return
-    
-            except Exception as e:
-                log.warning(f"CA350 connect failed: {e}")
-                time.sleep(5)
 
     def stop(self):
         log.info("Stopping CA350 client...")
@@ -425,31 +433,46 @@ class CA350Client:
 
     # ---------- RX LOOP ----------
 
-    def rx_loop(self):
-        while not self.shutting_down:
-            try:
-                data = self.sock.recv(256)    
-                if not data:
-                    raise ConnectionError("Socket closed by remote")   
-                self.buffer.extend(data)
-                self.process_buffer()
+    # def rx_loop(self):
+    #     while not self.shutting_down:
+    #         try:
+    #             data = self.sock.recv(256)    
+    #             if not data:
+    #                 raise ConnectionError("Socket closed by remote")   
+    #             self.buffer.extend(data)
+    #             self.process_buffer()
     
                         
-            except Exception as e:
-                if self.shutting_down:
-                    return  
-                log.warning(f"CA350 connection lost: {e}")   
-                try:
-                    self.sock.close()
-                except:
-                    pass
+    #         except Exception as e:
+    #             if self.shutting_down:
+    #                 return  
+    #             log.warning(f"CA350 connection lost: {e}")   
+    #             try:
+    #                 self.sock.close()
+    #             except:
+    #                 pass
     
-                self.running = False
-                time.sleep(3)
+    #             self.running = False
+    #             time.sleep(3)
     
-                # reconnect
-                self.connect()
+    #             # reconnect
+    #             self.connect()
+    #             continue
+
+    def rx_loop(self):
+        while self.running:
+            try:
+                data = self.sock.recv(256)
+                if not data:
+                    break
+                self.buffer.extend(data)
+                self.process_buffer()
+            except socket.timeout:
                 continue
+            except Exception as e:
+                if self.running:
+                    log.error(f"RX error: {e}")
+                break
 
     # ---------- FRAME PARSER ----------
 
