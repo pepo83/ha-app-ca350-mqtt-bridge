@@ -1,11 +1,13 @@
 # CA350 MQTT Bridge
 
-This add-on runs a Python bridge between a Zehnder ComfoAir 350 with connected CC Ease or Comfosense control unit and MQTT.
+This add-on runs a Python bridge between a Zehnder ComfoAir 350 (with or without connected CC Ease or Comfosense control unit) and MQTT.
 It provides Home Assistant MQTT Auto-Discovery (Climate + Sensors).
 
 # OPTIONS:
 
 DEBUG = False -->debug mode on/off, to see all commands/messages
+
+Comfosense_conected = True -->if you have no external control unit (CC Ease/Comfosense) connected: set to False
 
 PcMode = 0 -->0 default; 1 PC only; 3 PC Logmode
 

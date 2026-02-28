@@ -1,104 +1,108 @@
-name: Release + Changelog
+name: Release
 
 on:
   push:
     branches:
       - main
 
-permissions:
-  contents: write
-
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout full history
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install PyYAML
-        run: pip install pyyaml
-
-      - name: Read version from config.yaml
-        id: version
-        run: |
-          VERSION=$(python3 -c "import yaml;print(yaml.safe_load(open('ca350_mqtt_bridge/config.yaml'))['version'])")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Check if tag exists
-        id: tagcheck
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Stop if tag already exists
-        if: steps.tagcheck.outputs.exists == 'true'
-        run: |
-          echo "Tag already exists. No release needed."
-          exit 0
-
-      - name: Create Tag
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          git tag "$TAG"
-          git push origin "$TAG"
-
-      - name: Generate CHANGELOG entry
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          DATE=$(date +'%Y-%m-%d')
-
-          if [ ! -f CHANGELOG.md ]; then
-            echo "# Changelog" > CHANGELOG.md
-            echo "" >> CHANGELOG.md
-          fi
-
-          echo "## $VERSION - $DATE" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-          if [ -z "$PREVIOUS_TAG" ]; then
-            git log --pretty=format:"- %s" >> CHANGELOG.md
-          else
-            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s" >> CHANGELOG.md
-          fi
-
-          echo "" >> CHANGELOG.md
-          
-          cp CHANGELOG.md ca350_mqtt_bridge/CHANGELOG.md
-
-      - name: Commit updated CHANGELOG
+      - name: Configure git
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add CHANGELOG.md
-          git add ca350_mqtt_bridge/CHANGELOG.md
-          git commit -m "chore: update CHANGELOG for ${{ steps.version.outputs.version }}"
-          git push origin HEAD:main
 
-      - name: Build add-on zip
+      - name: Get latest tag
+        id: get_tag
         run: |
-          cd ca350_mqtt_bridge
-          zip -r ../ca350_mqtt_bridge.zip .
-          cd ..
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          OLD=${{ steps.get_tag.outputs.latest_tag }}
+          VERSION=${OLD#v}
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          PATCH=$((PATCH+1))
+
+          NEW_TAG="v$MAJOR.$MINOR.$PATCH"
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update addon config version
+        run: |
+          VERSION=${{ steps.bump.outputs.new_version }}
+          sed -i "s/^version:.*/version: \"$VERSION\"/" ca350_mqtt_bridge/config.yaml
+
+      - name: Generate addon changelog entry
+        run: |
+          VERSION=${{ steps.bump.outputs.new_tag }}
+          DATE=$(date +"%Y-%m-%d")
+
+          FILE="ca350_mqtt_bridge/CHANGELOG.md"
+
+          if [ ! -f "$FILE" ]; then
+            echo "# Changelog" > "$FILE"
+            echo "" >> "$FILE"
+          fi
+
+          TMP=$(mktemp)
+
+          echo "## $VERSION - $DATE" >> $TMP
+          echo "" >> $TMP
+
+          PREVIOUS=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$PREVIOUS" ]; then
+            git log --pretty=format:"- %s" >> $TMP
+          else
+            git log ${PREVIOUS}..HEAD --pretty=format:"- %s" >> $TMP
+          fi
+
+          echo "" >> $TMP
+
+          cat "$FILE" >> $TMP
+          mv $TMP "$FILE"
+
+      - name: Commit version + changelog
+        run: |
+          git add ca350_mqtt_bridge/config.yaml ca350_mqtt_bridge/CHANGELOG.md
+          git commit -m "chore: release ${{ steps.bump.outputs.new_tag }}" || echo "No changes"
+          git push
+
+      - name: Create git tag
+        run: |
+          git tag ${{ steps.bump.outputs.new_tag }}
+          git push origin ${{ steps.bump.outputs.new_tag }}
+
+      - name: Extract release notes
+        id: notes
+        run: |
+          VERSION=${{ steps.bump.outputs.new_tag }}
+          FILE="ca350_mqtt_bridge/CHANGELOG.md"
+
+          awk "/## $VERSION/{flag=1;next}/## /{flag=0}flag" "$FILE" > RELEASE_BODY.txt
+
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat RELEASE_BODY.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: CA350 MQTT Bridge v${{ steps.version.outputs.version }}
-          files: ca350_mqtt_bridge.zip
-          generate_release_notes: true
+          tag_name: ${{ steps.bump.outputs.new_tag }}
+          body: ${{ steps.notes.outputs.body }}

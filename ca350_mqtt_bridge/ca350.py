@@ -19,6 +19,7 @@ with open("/data/options.json") as f:
     options = json.load(f)
 
 DEBUG = options['debug'] 
+Comfosense_conected = options['comfosense_conected']                        
 
 PcMode = int(options['pc_mode'])   # 0,1,4 allowed
 
@@ -64,7 +65,7 @@ class MqttManager:
         self.client.on_message = self.on_message
         self.client.on_disconnect = self.on_disconnect
         self.client.reconnect_delay_set(min_delay=2, max_delay=60)
-        self.shutting_down = False                          
+        self.shutting_down = False
 
         # Last Will (shows HA if script dies)
         self.client.will_set(
@@ -82,7 +83,7 @@ class MqttManager:
     def stop(self):
         log.info("Stopping MQTT...")
         try:
-            self.shutting_down = True                         
+            self.shutting_down = True
             self.publish("status", "offline", retain=True)
             time.sleep(1)
             self.client.disconnect()
@@ -141,21 +142,21 @@ class MqttManager:
                 # HA sends: off / fan_only
                 if payload == "off":
                     if  self.ca.current_booster == True:
-                        	self.ca.cancel_booster()                                                                                                       
+                        	self.ca.cancel_booster()
                     self.ca.set_fan_level(1)  # off = minimal
                 else:
                     # fan_only -> keep current, but ensure at least 2 if None
                     if self.ca.current_fan_level is None:
                         self.ca.set_fan_level(2)
                     if payload == "fan_only":
-                        self.ca.set_fan_level(2)                         
+                        self.ca.set_fan_level(2)
 
             elif topic == "climate/fan_mode":
                 MAP = {
                     "low": 2,
                     "medium": 3,
                     "high": 4,
-                    "away": 1,
+                    "off": 1,
                 }
                 self.ca.set_fan_level(MAP.get(payload, 2))
 
@@ -163,7 +164,7 @@ class MqttManager:
                 if payload == "boost":
                     self.ca.set_booster()
                 else:
-                    self.ca.cancel_booster()                                                
+                    self.ca.cancel_booster()
             elif topic == "climate/temperature":
                 self.ca.set_temperature(float(payload))
 
@@ -175,7 +176,7 @@ class MqttManager:
                 self.ca.set_airflow_mode(mode)
                 
             elif topic == "filter_reset":
-                self.ca.reset_filter()           
+                self.ca.reset_filter()
         except Exception as e:
             log.warning(f"MQTT command error: {e}")
 
@@ -206,14 +207,14 @@ class MqttManager:
             
             "preset_mode_state_topic": f"{mqtt_base_topic}/status/preset_mode",
             "preset_mode_command_topic": f"{mqtt_base_topic}/set/climate/preset_mode",
-            "preset_modes": ["boost"],                                                 
+            "preset_modes": ["boost"],
 
             "fan_mode_state_topic": f"{mqtt_base_topic}/status/fan_mode",
             "fan_mode_command_topic": f"{mqtt_base_topic}/set/climate/fan_mode",
-            "fan_modes": ["away", "low", "medium", "high"],
+            "fan_modes": ["off", "low", "medium", "high"],
 
             "temperature_state_topic": f"{mqtt_base_topic}/status/comfort_temp",
-            "current_temperature_topic": f"{mqtt_base_topic}/status/extract_temp",                                                                     
+            "current_temperature_topic": f"{mqtt_base_topic}/status/extract_temp",
             "temperature_command_topic": f"{mqtt_base_topic}/set/climate/temperature",
             "min_temp": 15,
             "max_temp": 27,
@@ -244,8 +245,8 @@ class MqttManager:
             f"{ha_prefix}/button/ca350/filter_reset/config",
             json.dumps(button_cfg),
             retain=True
-        )              
-        self.client.publish(                    
+        )
+        self.client.publish(
             f"{ha_prefix}/select/ca350/airflow_mode/config",
             json.dumps(air_cfg),
             retain=True
@@ -261,39 +262,69 @@ class MqttManager:
         # --------- SENSORS ---------
 
         sensors = [
-            ("outside_temp", "Outside air", "°C"),
-            ("supply_temp", "Supply air", "°C"),
-            ("extract_temp", "Extract air", "°C"),
-            ("exhaust_temp", "Exhaust air", "°C"),
-            ("fan_level", "Fan level", None),
-            ("intake_fan", "Intake fan %", "%"),
-            ("exhaust_fan", "Exhaust fan %", "%"),
-            ("bypass", "Bypass", None),
-            ("filter", "Filter", None),
-            ("summer_mode", "Summer Mode", None),
-            ("rs232_mode", "RS232 Mode", None),
-            ("preheater_flap", "Preheater flap", None),
-            ("frost_protection", "Frost protection", None),
-            ("preheater", "Preheater active", None),
-            ("frost_minutes", "Frost minutes", "min"),
+            ("outside_temp", "Outside air", "°C","mdi:thermometer-chevron-up"),
+            ("supply_temp", "Supply air", "°C","mdi:thermometer"),
+            ("extract_temp", "Extract air", "°C","mdi:thermometer"),
+            ("exhaust_temp", "Exhaust air", "°C","mdi:thermometer-chevron-down"),
+            ("fan_level", "Fan level", None, "mdi:fan"),
+            ("intake_fan", "Intake fan %", "%","mdi:fan-chevron-down"),
+            ("exhaust_fan", "Exhaust fan %", "%","mdi:fan-chevron-up"),
+            ("bypass", "Bypass", None,"mdi:valve"),
+            ("rs232_mode", "RS232 Mode", None,"mdi:serial-port"),
+            ("preheater_flap", "Preheater flap", None,"mdi:valve-open"),
+            ("frost_minutes", "Frost minutes", "min","mdi:timer"),
 
         ]
 
-        for key, name, unit in sensors:
+        for key, name, unit, icon in sensors:
             cfg = {
                 "name": f"CA350 {name}",
                 "unique_id": f"ca350_{key}",
                 "state_topic": f"{mqtt_base_topic}/status/{key}",
+                "icon": icon,
                 "device": DEVICE_INFO,
                 **availability
             }
             if unit:
                 cfg["unit_of_measurement"] = unit
+            if unit == "°C":
+                cfg["device_class"] = "temperature"
+                cfg["state_class"] = "measurement"
+            if unit == "%":
+                cfg["state_class"] = "measurement"
 
             self.client.publish(
                 f"{ha_prefix}/sensor/ca350/{key}/config",
                 json.dumps(cfg),
                 retain=True
+            )
+        # ---------- Binary Sensors ----------
+
+        binary_sensors = [
+            ("filter_warning_bin", "Filter Warning", "mdi:air-filter"),
+            ("bypass_active_bin", "Bypass Active", "mdi:valve-open"),
+            ("summer_mode_bin", "Summer Mode", "mdi:weather-sunny"),
+            ("preheat_active_bin", "Preheater Active", "mdi:radiator"),
+            ("frost_protection_bin", "Frost protection", "mdi:snowflake-alert"),
+            ("booster_active_bin", "Booster Active", "mdi:rocket-launch"),
+        ]
+        
+        for key, name, icon in binary_sensors:
+            cfg = {
+                "name": f"CA350 {name}",
+                "unique_id": f"ca350_{key}",
+                "state_topic": f"{mqtt_base_topic}/status/{key}",
+                "payload_on": "ON",
+                "payload_off": "OFF",
+                "icon": icon,
+                "device": DEVICE_INFO,
+                **availability,
+            }
+        
+            self.client.publish(
+                f"{ha_prefix}/binary_sensor/ca350/{key}/config",
+                json.dumps(cfg),
+                retain=True,
             )
 
 
@@ -352,21 +383,39 @@ class CA350Client:
         self.current_airflow_mode = None
         self.current_booster = False
         self.filter_warn = False
-        self.shutting_down = False                                   
+        self.shutting_down = False
+        self.button_state = 0x02
 
     # ---------- CONNECTION ----------
 
     def connect(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((self.host, self.port))
-        self.running = True
-        self.rx_thread = threading.Thread(target=self.rx_loop, daemon=True)
-        self.rx_thread.start()
-        log.info("Connected to CA350")
+        while not self.shutting_down:
+            try:
+                log.info("Connecting to CA350...")
+                self.sock = socket.create_connection(
+                    (self.host, self.port),
+                    timeout=10
+                )
+    
+                self.running = True
+    
+                if not self.rx_thread or not self.rx_thread.is_alive():
+                    self.rx_thread = threading.Thread(
+                        target=self.rx_loop,
+                        daemon=True
+                    )
+                    self.rx_thread.start()
+    
+                log.info("Connected to CA350")
+                return
+    
+            except Exception as e:
+                log.warning(f"CA350 connect failed: {e}")
+                time.sleep(5)
 
     def stop(self):
         log.info("Stopping CA350 client...")
-        self.shutting_down = True                         
+        self.shutting_down = True
         self.running = False
         try:
             if self.sock:
@@ -377,19 +426,30 @@ class CA350Client:
     # ---------- RX LOOP ----------
 
     def rx_loop(self):
-        while self.running:
+        while not self.shutting_down:
             try:
-                data = self.sock.recv(256)
+                data = self.sock.recv(256)    
                 if not data:
-                    break
+                    raise ConnectionError("Socket closed by remote")   
                 self.buffer.extend(data)
                 self.process_buffer()
-            except socket.timeout:
-                continue
+    
+                        
             except Exception as e:
-                if self.running:
-                    log.error(f"RX error: {e}")
-                break
+                if self.shutting_down:
+                    return  
+                log.warning(f"CA350 connection lost: {e}")   
+                try:
+                    self.sock.close()
+                except:
+                    pass
+    
+                self.running = False
+                time.sleep(3)
+    
+                # reconnect
+                self.connect()
+                continue
 
     # ---------- FRAME PARSER ----------
 
@@ -463,6 +523,9 @@ class CA350Client:
         if calc != checksum:
             log.warning(f"Checksum error: {raw.hex(' ')}")
             return
+        if not Comfosense_conected: 
+            # ACK senden
+            self.send_ack()
 
         self.decode_frame(cmd, data)
 
@@ -490,7 +553,7 @@ class CA350Client:
 
             # Derive fan_mode string for HA climate
             if fan == 1:
-                fan_mode = "away"
+                fan_mode = "off"
             elif fan == 2:
                 fan_mode = "low"
             elif fan == 3:
@@ -506,7 +569,7 @@ class CA350Client:
                 mode = "off"
             else:
                 mode = "fan_only"          
-            self.publish("hvac_mode", mode)                                         
+            self.publish("hvac_mode", mode)
 
         # Temperature Status
         elif cmd == b"\x00\xD2" and len(data) >= 9:
@@ -539,9 +602,10 @@ class CA350Client:
         elif cmd == b"\x00\xE0" and len(data) >= 7:
             bypass = data[3]
             self.publish("bypass", str(bypass))
+            self.publish("bypass_active_bin", "ON" if bypass>0 else "OFF")                                                              
             log.debug(f"Bypass = {bypass}")
             summer_mode= data[6]
-            self.publish("summer_mode", "ON" if summer_mode== 1 else "OFF")
+            self.publish("summer_mode_bin", "ON" if summer_mode==1 else "OFF")
             log.debug(f"summer_mode= {summer_mode}")
 
         # RS232 mode
@@ -554,7 +618,7 @@ class CA350Client:
         # States from Display commands
         elif cmd == b"\x00\x3C" and len(data) >= 10:
         
-            #Airflow mode                       
+            #Airflow mode
             flags = data[9]
             In = bool(flags & 0x40)
             Out = bool(flags & 0x80)
@@ -580,21 +644,22 @@ class CA350Client:
                 self.publish("preset_mode", "boost")
             else:
                 self.publish("preset_mode", "none")
+            self.publish("booster_active_bin", "ON" if self.current_booster else "OFF")                                                                          
             log.debug(f"Booster = {'ON' if booster_active else 'OFF'}")
             
-            #Filter status                                           
+            #Filter status
             flags = data[1]
             filter_flag = bool(flags & 0x20)
             
             if filter_flag:
                 filter_state = "Full"
-                self.filter_warn = True                   
+                self.filter_warn = True
             else:
                 filter_state = "OK"
                 self.filter_warn = False                                
                 
             log.debug(f"Filter = {filter_state}")
-            self.publish("filter", filter_state)
+            self.publish("filter_warning_bin", "ON" if self.filter_warn else "OFF")
         
         # Preheater / Frost protection status
         elif cmd == b"\x00\xE2" and len(data) >= 6:
@@ -614,8 +679,8 @@ class CA350Client:
         
             # MQTT publish
             self.publish("preheater_flap", flap_txt)
-            self.publish("frost_protection", "ON" if frost_protection == 1 else "OFF")
-            self.publish("preheater", "ON" if preheat == 1 else "OFF")
+            self.publish("frost_protection_bin", "ON" if frost_protection == 1 else "OFF")
+            self.publish("preheat_active_bin", "ON" if preheat == 1 else "OFF")
             self.publish("frost_minutes", str(frost_minutes))
 
 
@@ -623,7 +688,7 @@ class CA350Client:
 
     def publish(self, key, value):
         if self.shutting_down:
-            return                                         
+            return
         self.mqtt.publish(f"status/{key}", value)
 
     # ---------- VERIFIED SEND ----------
@@ -718,10 +783,6 @@ class CA350Client:
         frame = self.build_frame(b"\x00\x37", data)
         self.sock.send(frame)
         log.debug("Sent airmode press (short)")
-        # data = bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02])
-        # frame = self.build_frame(b"\x00\x37", data)
-        # self.sock.send(frame)
-        # log.info(f"Sent airflow_mode_button {frame.hex(' ')})")
 
     def reset_filter(self):
         log.debug("Reset Filter")
@@ -783,8 +844,31 @@ class CA350Client:
         data = bytes([0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03])
         frame = self.build_frame(b"\x00\x37", data)
         self.sock.send(frame)  
-        log.debug("Sent fan button press (short)")                                                       
+        log.debug("Sent fan button press (short)")
 
+    def send_status_poll(self):
+        frame = self.build_frame(b"\x00\x33", b"")
+        self.sock.send(frame)
+        log.debug("Send status poll")
+        
+    def send_ccease_stat(self):
+        data = bytes([0x04, 0x13, 0x28, 0x5b, 0x05])
+        frame = self.build_frame(b"\x00\x35", data)
+        self.sock.send(frame) 
+        log.debug("Send CC Ease status")
+    
+    def send_button_stat(self):
+        data = bytes([0x00,0x00,0x00,0x00,0x00,0x00,self.button_state])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame)
+        # toggle 02 / 03
+        self.button_state = 0x03 if self.button_state == 0x02 else 0x02  
+        log.debug("Send button status")
+        
+    def send_ack(self):
+        self.sock.send(b"\x07\xF3")
+        log.debug("Sent ACK (07 F3)")
+        
     def print_seen_commands(self):
         log.debug("Seen protocol commands:")
         for c in sorted(self.seen_commands):
@@ -803,15 +887,26 @@ def main():
         ca.connect()
         log.info("System running (CTRL+C to exit)")
 
-        # set RS232 mode
-        if PcMode in (0, 1, 4):
-            ca.set_pc_mode(PcMode)
-        else:
-            log.warning(f"Invalid PC mode: {PcMode}")
-            ca.set_pc_mode(0)
+        # set RS232 mode      
+        if Comfosense_conected: 
+            if PcMode in (0, 1, 4):
+                ca.set_pc_mode(PcMode)
+            else:
+                log.warning(f"Invalid PC mode: {PcMode}")
+                ca.set_pc_mode(0)
 
-        while True:
-            time.sleep(1)
+        device_info_timer = 0                    
+        while not ca.shutting_down:
+        
+            if not Comfosense_conected:       
+                ca.send_status_poll()
+                ca.send_button_stat()  
+                device_info_timer += 1
+                if device_info_timer >= 10:
+                    ca.send_ccease_stat()
+                    device_info_timer = 0
+        
+            time.sleep(0.5)
 
     except KeyboardInterrupt:
         log.info("CTRL+C received")

@@ -17,6 +17,7 @@ arch:
 
 options:
   debug: false
+  comfosense_conected: true
   comfoair_host: "192.168.40.130"
   comfoair_port: 8899
   pc_mode: 0
@@ -27,6 +28,7 @@ options:
 
 schema:
   debug: bool
+  comfosense_conected: bool
   comfoair_host: str
   comfoair_port: int
   pc_mode: list(0|1|4)
