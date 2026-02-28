@@ -1,3 +1,11 @@
+## v1.4.1 - 2026-02-28
+
+- added binary sensors added CC Ease/Comfosense option/emulation
+- Merge branch 'main' of https://github.com/pepo83/ha-app-ca350-mqtt-bridge
+- Merge branch 'main' of https://github.com/pepo83/ha-app-ca350-mqtt-bridge
+- Delete CHANGELOG.md
+- delete CHANGELOG.md in root
+- chore: update CHANGELOG for 1.4
 # Changelog
 
 ## 1.2 - 2026-02-20
