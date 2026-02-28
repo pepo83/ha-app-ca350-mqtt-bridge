@@ -5,104 +5,131 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configure git
+      - name: Setup Git
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-      - name: Get latest tag
-        id: get_tag
+      - name: Determine version bump
+        id: version
         run: |
-          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Bump patch version
-        id: bump
-        run: |
-          OLD=${{ steps.get_tag.outputs.latest_tag }}
-          VERSION=${OLD#v}
+          if [ ! -f VERSION ]; then
+            echo "0.1.0" > VERSION
+          fi
 
+          VERSION=$(cat VERSION)
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-          PATCH=$((PATCH+1))
 
-          NEW_TAG="v$MAJOR.$MINOR.$PATCH"
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%s")
+          else
+            COMMITS=$(git log $LAST_TAG..HEAD --pretty=format:"%s")
+          fi
+
+          # keine relevanten commits → kein release
+          if ! echo "$COMMITS" | grep -E "feat:|fix:|perf:|refactor:|BREAKING:" > /dev/null; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if echo "$COMMITS" | grep -q "BREAKING:"; then
+            MAJOR=$((MAJOR+1))
+            MINOR=0
+            PATCH=0
+          elif echo "$COMMITS" | grep -q "^feat:"; then
+            MINOR=$((MINOR+1))
+            PATCH=0
+          else
+            PATCH=$((PATCH+1))
+          fi
+
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
 
-          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo $NEW_VERSION > VERSION
 
-      - name: Update addon config version
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "skip=false" >> $GITHUB_OUTPUT
+
+      - name: Stop if no release needed
+        if: steps.version.outputs.skip == 'true'
+        run: echo "No relevant commits → skipping release"
+
+      - name: Update Add-on/App version
+        if: steps.version.outputs.skip != 'true'
         run: |
-          VERSION=${{ steps.bump.outputs.new_version }}
-          sed -i "s/^version:.*/version: \"$VERSION\"/" ca350_mqtt_bridge/config.yaml
 
-      - name: Generate addon changelog entry
-        run: |
-          VERSION=${{ steps.bump.outputs.new_tag }}
-          DATE=$(date +"%Y-%m-%d")
+          VERSION=${{ steps.version.outputs.version }}
 
-          FILE="ca350_mqtt_bridge/CHANGELOG.md"
-
-          if [ ! -f "$FILE" ]; then
-            echo "# Changelog" > "$FILE"
-            echo "" >> "$FILE"
+          if [ -f ca350_mqtt_bridge/config.yaml ]; then
+            sed -i "s/^version:.*/version: \"$VERSION\"/" ca350_mqtt_bridge/config.yaml
           fi
 
-          TMP=$(mktemp)
+      - name: Generate changelog
+        if: steps.version.outputs.skip != 'true'
+        run: |
 
-          echo "## $VERSION - $DATE" >> $TMP
-          echo "" >> $TMP
+          VERSION=${{ steps.version.outputs.version }}
+          DATE=$(date +%Y-%m-%d)
 
-          PREVIOUS=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
-          if [ -z "$PREVIOUS" ]; then
-            git log --pretty=format:"- %s" >> $TMP
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -E "feat:|fix:|perf:|refactor:")
           else
-            git log ${PREVIOUS}..HEAD --pretty=format:"- %s" >> $TMP
+            COMMITS=$(git log $LAST_TAG..HEAD \
+            --pretty=format:"- %s" \
+            --no-merges | \
+            grep -E "feat:|fix:|perf:|refactor:")
           fi
 
-          echo "" >> $TMP
+          ENTRY="v$VERSION - $DATE
+          $COMMITS
 
-          cat "$FILE" >> $TMP
-          mv $TMP "$FILE"
+          "
 
-      - name: Commit version + changelog
+          mkdir -p ca350_mqtt_bridge
+
+          if [ -f ca350_mqtt_bridge/CHANGELOG.md ]; then
+            echo "$ENTRY$(cat ca350_mqtt_bridge/CHANGELOG.md)" > ca350_mqtt_bridge/CHANGELOG.md
+          else
+            echo "$ENTRY" > ca350_mqtt_bridge/CHANGELOG.md
+          fi
+
+      - name: Commit changes
+        if: steps.version.outputs.skip != 'true'
         run: |
-          git add ca350_mqtt_bridge/config.yaml ca350_mqtt_bridge/CHANGELOG.md
-          git commit -m "chore: release ${{ steps.bump.outputs.new_tag }}" || echo "No changes"
+          git add VERSION
+          git add ca350_mqtt_bridge/config.yaml
+          git add ca350_mqtt_bridge/CHANGELOG.md
+          git commit -m "chore: release v${{ steps.version.outputs.version }}" || echo "Nothing to commit"
           git push
 
-      - name: Create git tag
+      - name: Create tag
+        if: steps.version.outputs.skip != 'true'
         run: |
-          git tag ${{ steps.bump.outputs.new_tag }}
-          git push origin ${{ steps.bump.outputs.new_tag }}
-
-      - name: Extract release notes
-        id: notes
-        run: |
-          VERSION=${{ steps.bump.outputs.new_tag }}
-          FILE="ca350_mqtt_bridge/CHANGELOG.md"
-
-          awk "/## $VERSION/{flag=1;next}/## /{flag=0}flag" "$FILE" > RELEASE_BODY.txt
-
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          cat RELEASE_BODY.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          git tag v${{ steps.version.outputs.version }}
+          git push origin v${{ steps.version.outputs.version }}
 
       - name: Create GitHub Release
+        if: steps.version.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.bump.outputs.new_tag }}
-          body: ${{ steps.notes.outputs.body }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body_path: ca350_mqtt_bridge/CHANGELOG.md
