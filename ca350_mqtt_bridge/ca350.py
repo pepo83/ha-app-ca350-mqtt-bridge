@@ -387,39 +387,23 @@ class CA350Client:
         self.button_state = 0x02
 
     # ---------- CONNECTION ----------
-
-    # def connect(self):
-    #     while not self.shutting_down:
-    #         try:
-    #             log.info("Connecting to CA350...")
-    #             self.sock = socket.create_connection(
-    #                 (self.host, self.port),
-    #                 timeout=10
-    #             )
     
-    #             self.running = True
-    
-    #             if not self.rx_thread or not self.rx_thread.is_alive():
-    #                 self.rx_thread = threading.Thread(
-    #                     target=self.rx_loop,
-    #                     daemon=True
-    #                 )
-    #                 self.rx_thread.start()
-    
-    #             log.info("Connected to CA350")
-    #             return
-    
-    #         except Exception as e:
-    #             log.warning(f"CA350 connect failed: {e}")
-    #             time.sleep(5)
     def connect(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((self.host, self.port))
-        self.running = True
-        self.rx_thread = threading.Thread(target=self.rx_loop, daemon=True)
-        self.rx_thread.start()
-        log.info("Connected to CA350")
-    
+        if self.running:
+            return
+        log.info("Connecting to CA350...")
+        
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.connect((self.host, self.port))
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1) #new
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) #new
+            self.running = True
+            self.rx_thread = threading.Thread(target=self.rx_loop, daemon=True)
+            self.rx_thread.start()
+            log.info("Connected to CA350")
+        except Exception as e:
+            log.error(f"Connect failed: {e}")
 
     def stop(self):
         log.info("Stopping CA350 client...")
@@ -431,48 +415,32 @@ class CA350Client:
         except:
             pass
 
-    # ---------- RX LOOP ----------
-
-    # def rx_loop(self):
-    #     while not self.shutting_down:
-    #         try:
-    #             data = self.sock.recv(256)    
-    #             if not data:
-    #                 raise ConnectionError("Socket closed by remote")   
-    #             self.buffer.extend(data)
-    #             self.process_buffer()
-    
-                        
-    #         except Exception as e:
-    #             if self.shutting_down:
-    #                 return  
-    #             log.warning(f"CA350 connection lost: {e}")   
-    #             try:
-    #                 self.sock.close()
-    #             except:
-    #                 pass
-    
-    #             self.running = False
-    #             time.sleep(3)
-    
-    #             # reconnect
-    #             self.connect()
-    #             continue
-
     def rx_loop(self):
-        while self.running:
+        while self.running:  
             try:
-                data = self.sock.recv(256)
+                data = self.sock.recv(256)  
                 if not data:
-                    break
+                    raise ConnectionError("Socket closed")   
                 self.buffer.extend(data)
                 self.process_buffer()
-            except socket.timeout:
-                continue
-            except Exception as e:
-                if self.running:
-                    log.error(f"RX error: {e}")
-                break
+    
+            except Exception as e:  
+                if not self.running:
+                    break 
+                log.warning(f"CA350 connection lost: {e}")   
+                self.running = False 
+                try:
+                    self.sock.close()
+                except:
+                    pass   
+                # reconnect loop
+                while not self.running:
+                    log.info("Reconnecting to CA350...")
+                    try:
+                        self.connect()
+                        return
+                    except:
+                        time.sleep(3)
 
     # ---------- FRAME PARSER ----------
 
