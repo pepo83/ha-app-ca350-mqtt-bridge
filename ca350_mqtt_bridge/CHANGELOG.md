@@ -1,3 +1,6 @@
+v1.5.4 - 2026-03-01
+- fix: TCP connection logic
+
 v1.5.3 - 2026-02-28
 - fix: connection issues
 
