@@ -1,3 +1,6 @@
+v1.6.0 - 2026-03-04
+- feat: add booster set time, filter weeks
+
 v1.5.4 - 2026-03-01
 - fix: TCP connection logic
 
