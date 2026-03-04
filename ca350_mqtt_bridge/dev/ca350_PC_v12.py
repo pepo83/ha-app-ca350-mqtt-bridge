@@ -174,6 +174,9 @@ class MqttManager:
             
             elif topic == "filter_reset":
                 self.ca.reset_filter()
+                
+            elif topic == "booster_time":
+                self.ca.set_booster_time(int(payload))
 
         except Exception as e:
             log.warning(f"MQTT command error: {e}")
@@ -240,6 +243,20 @@ class MqttManager:
             **availability,
         }
         
+        booster_cfg = {
+            "name": "CA350 Booster Time",
+            "unique_id": "ca350_booster_time",
+            "state_topic": f"{mqtt_base_topic}/status/booster_time",
+            "command_topic": f"{mqtt_base_topic}/set/booster_time",
+            "min": 0,
+            "max": 120,
+            "step": 1,
+            "unit_of_measurement": "min",
+            "icon": "mdi:timer-outline",
+            "device": DEVICE_INFO,
+            **availability
+        }
+        
         self.client.publish(
             f"{ha_prefix}/button/ca350/filter_reset/config",
             json.dumps(button_cfg),
@@ -252,10 +269,15 @@ class MqttManager:
             retain=True
         )
 
-
         self.client.publish(
             f"{ha_prefix}/climate/ca350/main/config",
             json.dumps(climate_cfg),
+            retain=True
+        )
+        
+        self.client.publish(
+            f"{ha_prefix}/number/ca350/booster_time/config",
+            json.dumps(booster_cfg),
             retain=True
         )
 
@@ -273,13 +295,14 @@ class MqttManager:
             ("rs232_mode", "RS232 Mode", None,"mdi:serial-port"),
             ("preheater_flap", "Preheater flap", None,"mdi:valve-open"),
             ("frost_minutes", "Frost minutes", "min","mdi:timer"),
+            ("current_filter_time", "Filter time", "weeks","mdi:timer"),
 
         ]
 
         for key, name, unit, icon in sensors:
             cfg = {
                 "name": f"CA350 {name}",
-                "unique_id": f"ca350_{key}",
+                "unique_id": f"{key}",
                 "state_topic": f"{mqtt_base_topic}/status/{key}",
                 "icon": icon,
                 "device": DEVICE_INFO,
@@ -313,7 +336,7 @@ class MqttManager:
         for key, name, icon in binary_sensors:
             cfg = {
                 "name": f"CA350 {name}",
-                "unique_id": f"ca350_{key}",
+                "unique_id": f"{key}",
                 "state_topic": f"{mqtt_base_topic}/status/{key}",
                 "payload_on": "ON",
                 "payload_off": "OFF",
@@ -384,6 +407,9 @@ class CA350Client:
         self.current_airflow_mode = None
         self.current_booster = False
         self.filter_warn = False
+        self.current_booster_time = None
+        self.delay_values = None
+        self.current_filter_time = None
         self.shutting_down = False
         self.button_state = 0x02
 
@@ -679,7 +705,18 @@ class CA350Client:
             self.publish("frost_protection_bin", "ON" if frost_protection == 1 else "OFF")
             self.publish("preheat_active_bin", "ON" if preheat == 1 else "OFF")
             self.publish("frost_minutes", str(frost_minutes))
-
+        
+        #act delay times
+        elif cmd == b"\x00\xCA" and len(data) >= 8:
+            self.delay_values = list(data[:8])    
+            booster_time = data[3]   
+            filter_time = data[4]
+            log.info(f"Booster time = {booster_time} min")    
+            log.info(f"Filter time = {filter_time} weeks")   
+            self.current_booster_time = booster_time   
+            self.current_filter_time = filter_time 
+            self.publish("booster_time", str(booster_time))
+            self.publish("current_filter_time", str(filter_time))
 
     # ---------- MQTT PUBLISH ----------
 
@@ -780,6 +817,7 @@ class CA350Client:
         frame = self.build_frame(b"\x00\x37", data)
         self.sock.send(frame)
         log.debug("Sent airmode press (short)")
+        
     def reset_filter(self):
         log.info("Reset Filter")
         for _ in range(3):
@@ -841,6 +879,31 @@ class CA350Client:
         frame = self.build_frame(b"\x00\x37", data)
         self.sock.send(frame)  
         log.info("Sent fan button press (short)")
+        
+    def get_delay_times(self):
+        frame = self.build_frame(b"\x00\xC9", b"")
+        self.sock.send(frame)
+        log.info("Requested delay times")
+        
+    def set_booster_time(self, minutes):
+        if self.delay_values is None:
+            log.warning("Delay values unknown, requesting first")
+            self.get_delay_times()
+            return False
+        vals = list(self.delay_values)
+        vals[3] = int(minutes)  
+        data = bytes(vals) 
+        frame = self.build_frame(b"\x00\xCB", data) 
+        for _ in range(3):
+            self.sock.send(frame)
+            time.sleep(0.5) 
+            self.get_delay_times()
+            time.sleep(0.5) 
+            if self.current_booster_time == minutes:
+                log.info(f"Set booster time = {minutes} min")
+                return True
+        log.warning("Set booster time failed")
+        return False 
     
     def send_status_poll(self):
         frame = self.build_frame(b"\x00\x33", b"")
@@ -866,7 +929,7 @@ class CA350Client:
         log.debug("Sent ACK (07 F3)")
     
     def print_seen_commands(self):
-        log.info("Seen protocol commands:")
+        log.debug("Seen protocol commands:")
         for c in sorted(self.seen_commands):
             log.debug(f"  CMD {' '.join(f'{b:02X}' for b in c)}")
 
@@ -890,9 +953,14 @@ def main():
                 ca.set_pc_mode(PcMode)
             else:
                 log.warning(f"Invalid PC mode: {PcMode}")
-                ca.set_pc_mode(0)
+                ca.set_pc_mode(0)      
+        
+        #get act delay times
+        time.sleep(2)
+        ca.get_delay_times()
 
         device_info_timer = 0
+        delay_times_ran_today = False
         
         while not ca.shutting_down:
         
@@ -903,6 +971,16 @@ def main():
                 if device_info_timer >= 10:
                     ca.send_ccease_stat()
                     device_info_timer = 0
+            
+            #get act delay_times one time a day
+            now = time.localtime()
+            if now.tm_hour == 6 and not delay_times_ran_today:
+                ca.get_delay_times()
+                delay_times_ran_today = True
+                log.info("Daily delay times request")
+            # reset flag after 6:00 hour
+            if now.tm_hour != 6:
+                delay_times_ran_today = False
         
             time.sleep(0.5)
 
