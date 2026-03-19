@@ -38,6 +38,6 @@ schema:
 
   
 services:
-  - mqtt
+  - mqtt:need
 
 url: "https://github.com/pepo83/ha-app-ca350-mqtt-bridge"
