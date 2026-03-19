@@ -1,3 +1,6 @@
+v1.7.0 - 2026-03-19
+- feat: add booster switch, add auto/manual selector
+
 v1.6.0 - 2026-03-04
 - feat: add booster set time, filter weeks
 
