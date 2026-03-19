@@ -3,7 +3,7 @@ slug: ca350_mqtt_bridge
 version: "1.7.2"
 description: Zehnder ComfoAir 350 -> MQTT -> Home Assistant (Climate + Sensors)
 
-startup: services
+startup: application
 boot: auto
 init: false
 host_network: true
