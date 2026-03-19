@@ -1,3 +1,6 @@
+v1.7.3 - 2026-03-19
+- fix: config yaml
+
 v1.7.2 - 2026-03-19
 - fix: config yaml
 
