@@ -7,6 +7,7 @@ startup: application
 boot: auto
 init: false
 host_network: true
+hassio_api: true
 
 arch:
   - amd64
