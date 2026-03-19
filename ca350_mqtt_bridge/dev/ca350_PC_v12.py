@@ -119,8 +119,7 @@ class MqttManager:
                 client.reconnect()
                 break
             except Exception:
-                time.sleep(5)
-                
+                time.sleep(5)             
 
     def on_message(self, client, userdata, msg):
         if not self.ca:
@@ -161,6 +160,12 @@ class MqttManager:
                     self.ca.set_booster()
                 else:
                     self.ca.cancel_booster()
+                    
+            elif topic == "booster_switch":
+                if payload == "ON":
+                    self.ca.set_booster()
+                else:
+                    self.ca.cancel_booster()
         
             elif topic == "climate/temperature":
                 self.ca.set_temperature(float(payload))
@@ -177,6 +182,10 @@ class MqttManager:
                 
             elif topic == "booster_time":
                 self.ca.set_booster_time(int(payload))
+                
+            elif topic == "ventilation_mode":
+                mode = payload.strip().lower() 
+                self.ca.set_auto_mode(mode)
 
         except Exception as e:
             log.warning(f"MQTT command error: {e}")
@@ -232,8 +241,7 @@ class MqttManager:
             "options": ["In", "Out", "In and Out"],
             "device": DEVICE_INFO,
             **availability,
-        }
-        
+        }       
         
         button_cfg = {
             "name": "CA350 Filter Reset",
@@ -253,6 +261,31 @@ class MqttManager:
             "step": 1,
             "unit_of_measurement": "min",
             "icon": "mdi:timer-outline",
+            "device": DEVICE_INFO,
+            **availability
+        }
+        
+        booster_switch_cfg = {
+            "name": "CA350 Booster",
+            "unique_id": "ca350_booster_switch",
+            "state_topic": f"{mqtt_base_topic}/status/booster_active_bin",
+            "command_topic": f"{mqtt_base_topic}/set/booster_switch",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "state_on": "ON",
+            "state_off": "OFF",
+            "icon": "mdi:fan-clock",
+            "device": DEVICE_INFO,
+            **availability
+        }
+        
+        mode_select_cfg = {
+            "name": "CA350 Mode",
+            "unique_id": "ca350_mode_select",
+            "state_topic": f"{mqtt_base_topic}/status/ventilation_mode",
+            "command_topic": f"{mqtt_base_topic}/set/ventilation_mode",
+            "options": ["AUTO", "MANUAL"],
+            "icon": "mdi:calendar-clock",
             "device": DEVICE_INFO,
             **availability
         }
@@ -278,6 +311,18 @@ class MqttManager:
         self.client.publish(
             f"{ha_prefix}/number/ca350/booster_time/config",
             json.dumps(booster_cfg),
+            retain=True
+        )
+        
+        self.client.publish(
+            f"{ha_prefix}/switch/ca350/booster/config",
+            json.dumps(booster_switch_cfg),
+            retain=True
+        )
+        
+        self.client.publish(
+            f"{ha_prefix}/select/ca350/mode/config",
+            json.dumps(mode_select_cfg),
             retain=True
         )
 
@@ -330,7 +375,7 @@ class MqttManager:
             ("summer_mode_bin", "Summer Mode", "mdi:weather-sunny"),
             ("preheat_active_bin", "Preheater Active", "mdi:radiator"),
             ("frost_protection_bin", "Frost protection", "mdi:snowflake-alert"),
-            ("booster_active_bin", "Booster Active", "mdi:rocket-launch"),
+            ("booster_active_bin", "Booster Active", "mdi:fan-clock"),
         ]
         
         for key, name, icon in binary_sensors:
@@ -350,7 +395,6 @@ class MqttManager:
                 json.dumps(cfg),
                 retain=True,
             )
-
 
 # ================== CA350 CLIENT ==================
 
@@ -549,7 +593,6 @@ class CA350Client:
             self.send_ack()
 
         self.decode_frame(cmd, data)
-             
 
     # ---------- STATUS FRAMES ----------
 
@@ -669,7 +712,7 @@ class CA350Client:
             self.publish("booster_active_bin", "ON" if self.current_booster else "OFF")
             log.info(f"Booster = {'ON' if booster_active else 'OFF'}")
             
-            #Filter status
+            #Filter / fan mode status
             flags = data[1]
             filter_flag = bool(flags & 0x20)
             
@@ -683,7 +726,12 @@ class CA350Client:
             log.info(f"Filter = {filter_state}")
             self.publish("filter_warning_bin", "ON" if self.filter_warn else "OFF")
             
-        
+            self.auto_mode = bool(flags & 0x08)
+            self.manual_mode = bool(flags & 0x10)
+                    
+            mode = "AUTO" if self.auto_mode else "MANUAL"
+            self.publish("ventilation_mode", mode)
+                 
         # Preheater / Frost protection status
         elif cmd == b"\x00\xE2" and len(data) >= 6:
         
@@ -787,7 +835,6 @@ class CA350Client:
             lambda: self.current_RS232_mode == expected_mode,
             f"RS232 mode {nr}"
         )
-        
        
     def set_airflow_mode(self, mode: str):   
         mode = (mode or "").strip().lower()
@@ -809,6 +856,31 @@ class CA350Client:
             log.warning(f"Airflow mode change failed: {mode}")
         return True
     
+    def set_auto_mode(self, target):
+        if self.auto_mode is None:
+            log.warning("Mode unknown")
+            return   
+        if target == "auto" and not self.auto_mode:
+            for i in range(3):
+                self.press_clock_button_short()
+                time.sleep(0.8)
+                if self.auto_mode:
+                    break
+            if not self.auto_mode:
+                log.warning("Auto mode change failed")
+                return False
+            return True
+        elif target == "manual" and self.auto_mode:
+            for i in range(3):
+                self.press_clock_button_short()
+                time.sleep(0.8)
+                if self.manual_mode:
+                    break
+            if not self.manual_mode:
+                log.warning("Manual mode change failed")
+            return True
+        return False
+    
     def press_airmode_button(self):
         data = bytes([0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x02])
         frame = self.build_frame(b"\x00\x37", data)
@@ -819,7 +891,7 @@ class CA350Client:
         log.debug("Sent airmode press (short)")
         
     def reset_filter(self):
-        log.info("Reset Filter")
+        log.info("Reset Filter...")
         for _ in range(3):
             self.press_airmode_button_long()
             time.sleep(1)    
@@ -879,6 +951,15 @@ class CA350Client:
         frame = self.build_frame(b"\x00\x37", data)
         self.sock.send(frame)  
         log.info("Sent fan button press (short)")
+        
+    def press_clock_button_short(self):
+        data = bytes([0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x02])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame) 
+        data = bytes([0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x03])
+        frame = self.build_frame(b"\x00\x37", data)
+        self.sock.send(frame)  
+        log.info("Sent clock button press (short)")
         
     def get_delay_times(self):
         frame = self.build_frame(b"\x00\xC9", b"")
@@ -945,7 +1026,7 @@ def main():
     try:
         ca.connect()
         log.info("System running (CTRL+C to exit)")
-        log.info(f"ComfoSense connected: {Comfosense_connected}")
+        log.info(f"Comfosense connected: {Comfosense_connected}")
 
         # set RS232 mode
         if Comfosense_connected: 
@@ -970,7 +1051,7 @@ def main():
                 device_info_timer += 1
                 if device_info_timer >= 10:
                     ca.send_ccease_stat()
-                    device_info_timer = 0
+                    device_info_timer = 0                  
             
             #get act delay_times one time a day
             now = time.localtime()
