@@ -68,7 +68,8 @@ class MqttManager:
     def __init__(self):
         self.ca = None
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "CA350")
-        self.client.username_pw_set(mqtt_user, mqtt_pass)
+        if mqtt_user:
+            self.client.username_pw_set(mqtt_user, mqtt_pass)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.client.on_disconnect = self.on_disconnect
