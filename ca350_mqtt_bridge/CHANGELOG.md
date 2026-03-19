@@ -1,3 +1,6 @@
+v1.7.1 - 2026-03-19
+- fix: config.yaml-->added homeassistant_api
+
 v1.7.0 - 2026-03-19
 - feat: add booster switch, add auto/manual selector
 
