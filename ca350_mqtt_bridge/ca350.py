@@ -62,6 +62,11 @@ logging.basicConfig(
 log = logging.getLogger("CA350")
 log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 
+log.info("MQTT ENV TEST:")
+for k, v in os.environ.items():
+    if "MQTT" in k:
+        log.info(f"{k}={v}")
+
 # ================== MQTT MANAGER ==================
 
 class MqttManager:
