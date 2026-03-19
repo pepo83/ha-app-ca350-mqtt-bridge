@@ -1,3 +1,6 @@
+v1.7.2 - 2026-03-19
+- fix: config yaml
+
 v1.7.1 - 2026-03-19
 - fix: config.yaml-->added homeassistant_api
 
