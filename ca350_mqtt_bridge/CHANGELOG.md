@@ -1,3 +1,6 @@
+v1.7.9 - 2026-03-20
+- fix: config startup: application
+
 v1.7.8 - 2026-03-20
 - fix: config back to origin
 
