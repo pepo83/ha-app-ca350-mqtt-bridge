@@ -27,19 +27,10 @@ COMFOAIR_HOST = options['comfoair_host']
 COMFOAIR_PORT = options['comfoair_port']
 
 # MQTT options from Home Assistant Supervisor
-def env_str(name, default=None):
-    val = os.environ.get(name)
-    return val if val not in (None, "") else default
-def env_int(name, default):
-    try:
-        return int(env_str(name, default))
-    except:
-        return default
-    
-mqtt_host = env_str("MQTT_HOST", "core-mosquitto")
-mqtt_port = env_int("MQTT_PORT", 1883)
-mqtt_user = env_str("MQTT_USER", None)
-mqtt_pass = env_str("MQTT_PASSWORD", None)
+mqtt_host = os.environ.get("MQTT_HOST", "core-mosquitto")
+mqtt_port = int(os.environ.get("MQTT_PORT", "1883"))
+mqtt_user = os.environ.get("MQTT_USER")
+mqtt_pass = os.environ.get("MQTT_PASS")
 
 mqtt_base_topic = options['mqtt_base_topic']
 ha_prefix = options['ha_prefix']
@@ -73,8 +64,7 @@ class MqttManager:
     def __init__(self):
         self.ca = None
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "CA350")
-        if mqtt_user:
-            self.client.username_pw_set(mqtt_user, mqtt_pass)
+        self.client.username_pw_set(mqtt_user, mqtt_pass)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.client.on_disconnect = self.on_disconnect
