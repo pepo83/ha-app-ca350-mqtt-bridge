@@ -1,3 +1,6 @@
+v1.8.0 - 2026-03-22
+- feat: add filter weeks slider, add operating hours
+
 v1.7.9 - 2026-03-20
 - fix: config startup: application
 
