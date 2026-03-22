@@ -19,5 +19,9 @@ https://github.com/adorobis/hacomfoairmqtt
 ## Development
 - App folder: `ca350_mqtt_bridge/`
 
-<img width="257" height="871" alt="grafik" src="https://github.com/user-attachments/assets/446aafde-f32b-4a37-a486-2f42bf431b99" />
+<img src="docs/controls.png" width="300">
+<img src="docs/sensors.png" width="300">
+
+Waveshare adapter settings:
+<img src="docs/waveshare.png" width="545">
 
