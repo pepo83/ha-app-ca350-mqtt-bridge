@@ -804,7 +804,7 @@ class CA350Client:
             self.publish("filter_time", str(filter_time))
             
         #Operating hours    
-        elif cmd == b"\x00\xDE":
+        elif cmd == b"\x00\xDE" and len(data) >= 20:
             def get_3byte(idx):
                 return (data[idx] << 16) | (data[idx+1] << 8) | data[idx+2]      
             def get_2byte(idx):
@@ -818,7 +818,8 @@ class CA350Client:
             hours_bypass = get_2byte(13)
             hours_filter = get_2byte(15)
             hours_high = get_3byte(17)
-        
+            log.debug("Operating hours received") 
+            
             self.publish("hours_away", hours_away)
             self.publish("hours_low", hours_low)
             self.publish("hours_medium", hours_medium)
@@ -1127,10 +1128,9 @@ def main():
         
         #get act delay times and operating hours
         time.sleep(2)
-        ca.get_delay_times()
-        time.sleep(1)
         ca.get_operating_hours()
-
+        time.sleep(2)
+        ca.get_delay_times()
         device_info_timer = 0
         delay_times_ran_today = False
         
@@ -1147,9 +1147,11 @@ def main():
             #get act delay_times and operating hours one time a day
             now = time.localtime()
             if now.tm_hour == 6 and not delay_times_ran_today:
-                ca.get_delay_times()
-                time.sleep(1)
                 ca.get_operating_hours()
+                time.sleep(2)
+                ca.get_operating_hours()
+                time.sleep(2)
+                ca.get_delay_times()
                 delay_times_ran_today = True
                 log.info("Daily delay times/operating hours request")
             # reset flag after 6:00 hour
