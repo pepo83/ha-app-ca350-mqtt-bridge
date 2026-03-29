@@ -1,3 +1,6 @@
+v1.8.1 - 2026-03-29
+- fix: improve operating hours request
+
 v1.8.0 - 2026-03-22
 - feat: add filter weeks slider, add operating hours
 
