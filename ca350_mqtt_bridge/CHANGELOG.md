@@ -1,3 +1,6 @@
+v1.8.2 - 2026-04-21
+- fix: bit stuffing
+
 v1.8.1 - 2026-03-29
 - fix: improve operating hours request
 
