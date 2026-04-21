@@ -438,6 +438,15 @@ class MqttManager:
 class CA350Client:
     START = b"\x07\xF0"
     END = b"\x07\x0F"
+    
+    @staticmethod
+    def stuff_data(data: bytes) -> bytes:
+        stuffed = bytearray()
+        for b in data:
+            stuffed.append(b)
+            if b == 0x07:
+                stuffed.append(0x07)
+        return bytes(stuffed)
 
     @staticmethod
     def calc_checksum(cmd: bytes, length: int, data: bytes) -> int:
@@ -462,11 +471,12 @@ class CA350Client:
     def build_frame(cls, cmd: bytes, data: bytes = b"") -> bytes:
         ln = len(data)
         checksum = cls.calc_checksum(cmd, ln, data)
+        stuffed_data = cls.stuff_data(data)
         return (
             cls.START +
             cmd +
             bytes([ln]) +
-            data +
+            stuffed_data +
             bytes([checksum]) +
             cls.END
         )
