@@ -1,3 +1,6 @@
+v1.8.3 - 2026-04-29
+- fix: add auto/manual attribute to init
+
 v1.8.2 - 2026-04-21
 - fix: bit stuffing
 
