@@ -498,6 +498,8 @@ class CA350Client:
         self.current_filter_time = None
         self.shutting_down = False
         self.button_state = 0x02
+        self.auto_mode = None
+        self.manual_mode = None
 
     # ---------- CONNECTION ----------
     
